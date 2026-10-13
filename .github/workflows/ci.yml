@@ -47,7 +47,7 @@ jobs:
       - name: Start the container and check it responds
         run: |
           docker run -d -p 8080:8080 suittracker-server
-          curl -fsS --retry 10 --retry-connrefused --retry-delay 1 localhost:8080/_health
+          curl -fsS --retry 15 --retry-all-errors --retry-delay 1 localhost:8080/_health
           curl -fsS localhost:8080/insights
 
   # Shows how a release would go out. It does nothing until the repo variable
