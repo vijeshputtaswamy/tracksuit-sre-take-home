@@ -56,5 +56,5 @@ const app = new oak.Application();
 app.use(router.routes());
 app.use(router.allowedMethods());
 
-app.listen(env);
+app.listen({ hostname: "0.0.0.0", port: env.port });
 console.log(`Started server on port ${env.port}`);

@@ -1,0 +1,8 @@
+.git
+.vscode
+assets
+**/node_modules
+**/build
+**/tmp
+client/src
+.env
