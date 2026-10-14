@@ -1,4 +1,5 @@
 // deno-lint-ignore-file no-explicit-any
+import * as insightsTable from "$tables/insights.ts";
 import { Database } from "@db/sqlite";
 import * as oak from "@oak/oak";
 import * as path from "@std/path";
@@ -18,6 +19,7 @@ console.log(`Opening SQLite database at ${dbFilePath}`);
 
 await Deno.mkdir(path.dirname(dbFilePath), { recursive: true });
 const db = new Database(dbFilePath);
+db.exec(insightsTable.createTable);
 
 console.log("Initialising server");
 
@@ -31,7 +33,7 @@ router.get("/_health", (ctx) => {
 router.get("/insights", (ctx) => {
   const result = listInsights({ db });
   ctx.response.body = result;
-  ctx.response.body = 200;
+  ctx.response.status = 200;
 });
 
 router.get("/insights/:id", (ctx) => {
@@ -54,5 +56,5 @@ const app = new oak.Application();
 app.use(router.routes());
 app.use(router.allowedMethods());
 
-app.listen(env);
+app.listen({ hostname: "0.0.0.0", port: env.port });
 console.log(`Started server on port ${env.port}`);

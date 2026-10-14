@@ -1,0 +1,88 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: 2.4.2
+      - run: deno install
+      # The client typecheck is left out for now: the original code has type
+      # errors in app.tsx that the next developer needs to fix.
+      - run: deno check server lib
+      - run: deno task test:server
+      - run: deno task test:client
+
+  build-client:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: 2.4.2
+      - run: deno install
+      - run: deno task build:client
+      - uses: actions/upload-artifact@v4
+        with:
+          name: client-build
+          path: client/build
+
+  build-image:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t suittracker-server .
+      - name: Start the container and check it responds
+        run: |
+          docker run -d -p 8080:8080 suittracker-server
+          curl -fsS --retry 15 --retry-all-errors --retry-delay 1 localhost:8080/_health
+          curl -fsS localhost:8080/insights
+
+  # Shows how a release would go out. It does nothing until the repo variable
+  # DEPLOY_ENABLED is set to "true", because there is no real infrastructure yet.
+  deploy:
+    if: github.ref == 'refs/heads/main' && vars.DEPLOY_ENABLED == 'true'
+    needs: [build-client, build-image]
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: client-build
+          path: client-build
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ap-southeast-2
+      - uses: aws-actions/amazon-ecr-login@v2
+      - name: Build and push the image, tagged with the commit
+        run: |
+          docker build -t ${{ vars.ECR_REPO }}:${{ github.sha }} .
+          docker push ${{ vars.ECR_REPO }}:${{ github.sha }}
+      - name: Roll out the new backend to ECS
+        run: |
+          aws ecs update-service --cluster ${{ vars.ECS_CLUSTER }} \
+            --service ${{ vars.ECS_SERVICE }} --force-new-deployment
+          aws ecs wait services-stable --cluster ${{ vars.ECS_CLUSTER }} \
+            --services ${{ vars.ECS_SERVICE }}
+      - name: Upload the frontend and refresh the CDN
+        run: |
+          aws s3 sync client-build s3://${{ vars.FRONTEND_BUCKET }} --delete
+          aws cloudfront create-invalidation \
+            --distribution-id ${{ vars.CLOUDFRONT_DISTRIBUTION_ID }} --paths "/*"
